@@ -4,10 +4,20 @@ from fastapi.security import OAuth2PasswordBearer
 from keycloak import KeycloakOpenID
 from pydantic import BaseModel
 import uvicorn
+import json
+import requests
 from functools import wraps
-
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Adjust this to restrict to specific origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Adjust to specify allowed methods
+    allow_headers=["*"],  # Adjust to specify allowed headers
+)
 
 
 KEYCLOAK_SERVER_URL = "http://172.18.0.5:8080/"
@@ -17,6 +27,9 @@ KEYCLOAK_CLIENT_SECRET = "pmoTRbqod19gUYAgkoWx1jIxgwhwg3zr"
 KEYCLOAK_CALLBACK_URI = "http://localhost:8000/callback"
 KEYCLOAK_VERIFY_SSL = False  
 TOKEN_URL = "http://172.18.0.5:8080/realms/cormetrix/protocol/openid-connect/token"
+superset_url = "http://cormetrix_superset:8088"
+# superset_url = "http://localhost:8088"
+
 
 keycloak_openid = KeycloakOpenID(
     server_url=KEYCLOAK_SERVER_URL,
@@ -26,12 +39,18 @@ keycloak_openid = KeycloakOpenID(
     verify=KEYCLOAK_VERIFY_SSL
 )
 
+
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=TOKEN_URL, scopes={})
 
 class UserCreds(BaseModel):
     username: str
     password: str
 
+mapping = {
+    "admin_user": UserCreds(username="test_user", password="test"),
+    "patient_user": UserCreds(username="", password="")
+}
 class TokenResponse(BaseModel):
     token: str
     data: dict
@@ -42,7 +61,102 @@ class User(BaseModel):
     given_name: str
     family_name: str
     email: str
-    address: dict
+
+
+def get_access_token(username: str, password: str):
+    url = f"{superset_url}/api/v1/security/login"
+    payload = {
+        "username": username,
+        "password": password,
+        "provider": "db"
+    }
+
+    try:
+        response = requests.post(url, json=payload)
+
+        # Check if the response was successful
+        response.raise_for_status()  # Raises an HTTPError for bad responses (4xx or 5xx)
+
+        data = response.json()
+        access_token = data.get("access_token")
+        return access_token  # Return the token
+
+    except requests.exceptions.RequestException as error:
+        print("Error fetching access token:", error)
+
+def get_csrf_token(access_token: str):
+    url = f"{superset_url}/api/v1/security/csrf_token"
+    
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {access_token}'
+    }
+
+    try:
+        response = requests.get(url, headers=headers)
+
+        # Check if the response was successful
+        response.raise_for_status()  # Raises an HTTPError for bad responses
+
+        data = response.json()
+        return data.get("result")  # Return the CSRF token or the entire data as needed
+
+    except requests.exceptions.RequestException as error:
+        print("Error fetching CSRF token:", error)
+
+
+def fetch_guest_token_from_backend(access_token: str, resource: list):
+    try:
+        # Await the access token
+        csrf_token = get_csrf_token(access_token)  # Assuming you have a function to get CSRF token
+        url = f'{superset_url}/api/v1/security/guest_token'
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {access_token}',
+            # 'X-CSRF-Token':csrf_token
+        }
+        payload = {
+            "user": {
+                "username": "stan_lee",
+                "first_name": "Stan",
+                "last_name": "Lee"
+            },
+            "resources": resource,
+            "rls": []
+        }
+
+        response = requests.post(url, headers=headers, data=json.dumps(payload))
+
+        # Check if the response was successful
+        response.raise_for_status()
+
+        guest_token_data = response.json()  # Assuming the guest token is returned here
+        return guest_token_data.get('token')  # Adjust according to the actual response structure
+
+    except requests.exceptions.RequestException as error:
+        print("Error fetching guest token:", error)
+        raise  # Re-raise the exception for further handling
+
+def get_dashboard(access_token):
+    url = f"{superset_url}/api/v1/dashboard/"
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json'
+    }
+    try:
+        response = requests.get(url, headers=headers)
+
+        # Check if the response was successful
+        response.raise_for_status()
+
+        dashboards = response.json().get('result', [])
+        # embed_ids = [dashboard['id'] for dashboard in dashboards if 'id' in dashboard]
+
+        return dashboards # Return the list of embed IDs
+
+    except requests.exceptions.RequestException as error:
+        print("Error fetching dashboards:", error)
+
 
 def check_permission(permission: list):
     def dependency(token_data: TokenResponse = Depends(verify_token)):
@@ -124,45 +238,27 @@ async def edit_user(token_data: TokenResponse = Depends(verify_token), access = 
         raise HTTPException(status_code=500, detail="Invalid or expired token")
 
 
+@app.post("/dashboard/token")
+async def superset_guest_token(token_data: TokenResponse = Depends(verify_token)):
+    try:
+        user_data = User(**token_data.data)
+        superset_creds: UserCreds = mapping.get(user_data.preferred_username)
+        access_token = get_access_token(superset_creds.username, superset_creds.password)
+        if not access_token:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Check the user creds")
+        dashboards = get_dashboard(access_token)
+        res = []
+        for data in dashboards:
+            res.append({"type":"dashboard","id":str(data.get("id",""))})
+
+        
+        guest_token = fetch_guest_token_from_backend(access_token, res)
+        return {"guest_token":guest_token}
+    except HTTPException as e:
+        raise
+    except Exception as er:
+        print(er)
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,str(er))
+
 if __name__ == "__main__":
    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
-
-
-
-
-# @app.get("/login")
-# async def login():
-#     """
-#     Redirect the user to Keycloak for login.
-#     """
-#     authorization_url = keycloak_openid.auth_url(
-#         redirect_uri=KEYCLOAK_CALLBACK_URI
-#     )
-#     return RedirectResponse(authorization_url)
-
-
-# @app.get("/callback")
-# async def callback(request: Request):
-#     """
-#     Handle the callback from Keycloak. This endpoint receives the authorization code,
-#     exchanges it for an access token, and displays the token.
-#     """
-#     query_params = request.query_params
-#     code = query_params.get("code")
-    
-#     if not code:
-#         raise HTTPException(status_code=400, detail="Authorization code not provided")
-    
-#     try:
-#         token_response = keycloak_openid.token(
-#             grant_type="authorization_code",
-#             code=code,
-#             redirect_uri=KEYCLOAK_CALLBACK_URI
-#         )
-
-#         return JSONResponse({
-#             **token_response
-#         })
-    
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))

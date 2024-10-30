@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login Page</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="flex items-center justify-center min-h-screen bg-gray-100" id="login">
+
+    <div class="bg-white p-8 rounded-lg shadow-md w-96 font-serif">
+        <h2 class="text-2xl font-semibold mb-6 text-center">Login</h2>
+        <form>
+            <div class="mb-4">
+                <label for="username" class="block text-sm font-medium text-gray-700">Username</label>
+                <input type="text" id="username" placeholder="Enter your username" 
+                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring focus:ring-blue-300" required>
+            </div>
+            <div class="mb-4">
+                <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+                <input type="password" id="password" placeholder="Enter your password" 
+                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring focus:ring-blue-300" required>
+            </div>
+            <button type="submit" class="w-full py-2 bg-gray-600 text-white rounded-md focus:outline-none focus:ring focus:ring-blue-300">Login</button>
+        </form>
+    </div>
+    <script>
+        const server_url = "http://localhost:8002";
+        async function fetchGuestTokenFromBackend() {
+            try {
+                let access_token = localStorage.getItem("access_token")
+                const response = await fetch(`${server_url}/dashboard/token`, {
+                    method: 'POST',
+                    headers:{"Content-Type":"application/json","Authorization":`Bearer ${access_token}`},
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Error fetching guest token: ${response.status}`);
+                }
+
+                const guestTokenData = await response.json(); 
+                localStorage.setItem("guest_token",guestTokenData.guest_token);
+                window.location.href = "index.html"; 
+            } catch (error) {
+                console.error("Error fetching guest token:", error);
+                throw error; 
+            }
+        }
+
+        document.getElementById("login").addEventListener('submit',async (event) =>{
+            event.preventDefault();
+            let username = document.getElementById("username").value, password  = document.getElementById("password").value;
+            try {
+                
+                const response = await fetch(`${server_url}/login`, {
+                    method: 'POST',
+                    headers:{"Content-Type":"application/json"},
+                    body: JSON.stringify({"username":username,"password":password})
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Error fetching guest token: ${response.status}`);
+                }
+
+                const res_data = await response.json(); 
+                localStorage.setItem("access_token", res_data.access_token);
+                fetchGuestTokenFromBackend();
+            } catch (error) {
+                console.error("Error fetching guest token:", error);
+                throw error; 
+            }
+        });
+        
+    </script>
+</body>
+</html>
