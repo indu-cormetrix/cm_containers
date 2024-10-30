@@ -1,0 +1,116 @@
+services:
+  # Service for the apache superset
+  superset:
+    image: apache/superset:latest
+    container_name: cormetrix_superset
+    environment:
+      - SUPERSET_DATABASE_URI=postgresql+psycopg2://superset:superset@db/superset
+      - PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAm6XHZcLmcok2B99/y20kBwrkAliSHU54SoM8EKNXZLUqU2WFR8yTATB7Emw5ke3IbZVjSVzsiA8z/0Z325koXD0QfW0ADqUxzVMFIItL19Ibs1fyBunZ+hj0vCf9R7mGsmFYDCERH0LRI9HtOM254pqlk0dN9G+KGBBdtRFnPz7afQSahnwdxXeVHqBs2r5JI9Brxt/LSClqjvjSb86Xvf1LvTybyg4PVRazRh2n6hUjeinVhlz9xIPWMh1Ws4tgBPB3XyN2YQldJCU4T0sQiLatcuTL4/WYQqwMQz89ZgJc4iySE/eBcXQi01MX8s77gbUP1SsmVlz4F773GwPmTQIDAQAB\n-----END PUBLIC KEY-----"
+      # - REDIS_URL=redis://redis:6379/0
+    ports:
+      - "8088:8088"
+    volumes:
+      - ./superset/requirement.txt:/app/requirement.txt
+      - ./superset/client_secret.json:/app/client_secret.json
+      - ./superset/keycloak_security_manager.py:/app/keycloak_security_manager.py
+      - ./superset/superset_config.py:/app/superset_config.py
+
+    depends_on:
+      - db
+      - keycloak
+    command: >
+      bash -c "pip install -r /app/requirement.txt && superset db upgrade && superset init && superset run -h 0.0.0.0 -p 8088"
+    networks:
+      - cormetrix-network
+
+  # Entiere psql service for backend, keycloak, superset
+  db:
+    image: postgres:latest
+    container_name: cormetrix_postgres
+    environment:
+      - POSTGRES_USER=cormetrix
+      - POSTGRES_PASSWORD=cormetrix123
+      - POSTGRES_DB=cormetrix
+    volumes:
+      - ./db/seed/:/docker-entrypoint-initdb.d/ 
+      - cormetrix_pg_data:/var/lib/postgresql/data
+    ports:
+      - "5430:5432"
+    networks:
+      - cormetrix-network
+
+  # Redis service for the apache superset
+  # redis:
+  #   image: redis:latest
+  #   container_name: cormetrix_superset_redis
+  #   networks:
+  #     - cormetrix-network
+
+  # Service for the Backend API's
+  db_api:
+    build:
+      context: ./db_fastapi
+      dockerfile: Dockerfile
+    container_name: cormetrix_db_api
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    networks:
+      - cormetrix-network
+
+  #Service for the Retriver API's
+  retriver_api:
+    build:
+      context: ./retriver_fastapi
+      dockerfile: Dockerfile
+    container_name: cormetrix_retriver_api
+    ports:
+      - "8001:8001"
+    depends_on:
+      - db
+    networks:
+      - cormetrix-network
+
+  # Service for the keycloak
+  keycloak:
+    build: 
+      context: ./keycloak
+    container_name: cormetrix_keycloak
+    environment:
+      - KC_DB=postgres
+      - KC_DB_URL=jdbc:postgresql://cormetrix_postgres/keycloak
+      - KC_DB_USERNAME=keycloak
+      - KC_DB_PASSWORD=keycloak
+      - KC_HOSTNAME=172.18.0.5
+      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=admin
+    ports:
+      - "8080:8080"
+    command: start-dev
+    depends_on:
+      - db
+    networks:
+      cormetrix-network:
+        ipv4_address: 172.18.0.5
+
+  react_frontend:
+    build:
+      context: ./react
+      dockerfile: Dockerfile
+    container_name: cormetrix_react_frontend
+    ports:
+      - "80:80"
+    networks:
+      - cormetrix-network
+
+networks:
+  cormetrix-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+
+volumes:
+  cormetrix_pg_data:
+    driver: local

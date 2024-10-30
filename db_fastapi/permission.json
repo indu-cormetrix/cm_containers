@@ -1,0 +1,104 @@
+{
+    "allowRemoteResourceManagement": true,
+    "policyEnforcementMode": "ENFORCING",
+    "resources": [
+      {
+        "name": "Default Resource",
+        "type": "urn:ZmFzdGFwaSBjbGllbnQgSUQ=:resources:default",
+        "ownerManagedAccess": false,
+        "attributes": {},
+        "uris": [
+          "/*"
+        ]
+      },
+      {
+        "name": "users",
+        "ownerManagedAccess": false,
+        "displayName": "users",
+        "attributes": {},
+        "uris": [
+          "/users/*"
+        ],
+        "scopes": [
+          {
+            "name": "read"
+          },
+          {
+            "name": "write"
+          }
+        ],
+        "icon_uri": ""
+      }
+    ],
+    "policies": [
+      {
+        "name": "admin_group_policy",
+        "description": "",
+        "type": "group",
+        "logic": "POSITIVE",
+        "decisionStrategy": "UNANIMOUS",
+        "config": {
+          "groups": "[{\"path\":\"/admin\",\"extendChildren\":false}]",
+          "groupsClaim": ""
+        }
+      },
+      {
+        "name": "user_group_policy",
+        "description": "",
+        "type": "group",
+        "logic": "POSITIVE",
+        "decisionStrategy": "UNANIMOUS",
+        "config": {
+          "groups": "[{\"path\":\"/users\",\"extendChildren\":false}]",
+          "groupsClaim": ""
+        }
+      },
+      {
+        "name": "Default Policy",
+        "description": "A policy that grants access only for users within this realm",
+        "type": "js",
+        "logic": "POSITIVE",
+        "decisionStrategy": "AFFIRMATIVE",
+        "config": {
+          "code": "// by default, grants any permission associated with this policy\n$evaluation.grant();\n"
+        }
+      },
+      {
+        "name": "user_res_read",
+        "description": "",
+        "type": "scope",
+        "logic": "POSITIVE",
+        "decisionStrategy": "AFFIRMATIVE",
+        "config": {
+          "resources": "[\"users\"]",
+          "scopes": "[\"read\"]",
+          "applyPolicies": "[\"admin_group_policy\",\"user_group_policy\"]"
+        }
+      },
+      {
+        "name": "user_res_write",
+        "description": "",
+        "type": "scope",
+        "logic": "POSITIVE",
+        "decisionStrategy": "UNANIMOUS",
+        "config": {
+          "resources": "[\"users\"]",
+          "scopes": "[\"write\"]",
+          "applyPolicies": "[\"admin_group_policy\"]"
+        }
+      }
+    ],
+    "scopes": [
+      {
+        "name": "read",
+        "iconUri": "",
+        "displayName": "read"
+      },
+      {
+        "name": "write",
+        "iconUri": "",
+        "displayName": "write"
+      }
+    ],
+    "decisionStrategy": "UNANIMOUS"
+  }

@@ -1,0 +1,5 @@
+Authlib
+Flask-OAuthlib
+flask-oidc
+Flask-OpenID
+python-keycloak
